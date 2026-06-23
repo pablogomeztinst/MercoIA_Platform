@@ -138,7 +138,7 @@ Este módulo se apoya en:
 El flujo de actualización automática permite descargar, procesar y organizar información de precios. El diseño busca que el sistema valide productos, identifique archivos disponibles, descargue la información, procese registros y genere una estructura consultable.
 
 <p align="center">
-  <img src="assets/modulo_precios_n8n.png" alt="Actualización automática de precios con n8n" width="900">
+  <img src="assets/pipeline_modulo_precios.png" alt="Actualización automática de precios con n8n" width="900">
 </p>
 
 El flujo general del módulo de precios contempla las siguientes etapas:
