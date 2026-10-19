@@ -53,58 +53,75 @@ Ambos módulos se integran dentro de una misma plataforma, permitiendo que la he
 
 ## Arquitectura general de la plataforma
 
-La arquitectura general de MercoIA conecta al usuario con servicios de automatización, procesamiento e inteligencia artificial. El flujo general contempla la interacción mediante WhatsApp, la conexión mediante Evolution API, la orquestación de procesos mediante n8n y la activación de los módulos de precios o de análisis de imágenes según el tipo de solicitud.
+MercoIA articula **dos componentes tecnológicos especializados**: la consulta conversacional de precios agrícolas y el análisis de imágenes para identificar condiciones fitosanitarias de frutos. Ambos comparten el propósito de apoyar decisiones del productor, pero **no deben confundirse sus estados de despliegue**: el servicio de precios cuenta con una implementación de backend y mensajería; el componente de imágenes dispone de un pipeline de segmentación, entrenamiento y clasificación que todavía requiere completar su integración con el canal de atención al agricultor.
 
-<p align="center">
-  <img src="assets/arquitectura_general_mercoia.png" alt="Arquitectura general de MercoIA" width="900">
-</p>
-
-De forma conceptual, el flujo general de la plataforma puede resumirse así:
+La arquitectura vigente del **módulo de precios** sustituye los flujos de automatización de la versión anterior por un backend propio en **Python/FastAPI** y utiliza **WhatsApp Cloud API de Meta**, en lugar de servicios de mensajería no oficiales. Los procesos de aplicación, consulta de datos y almacenamiento se mantienen separados para facilitar mantenimiento, pruebas y escalamiento.
 
 ```mermaid
-flowchart LR
-    A[Usuario / Agricultor] --> B[WhatsApp]
-    B --> C[Evolution API]
-    C --> D[n8n]
-    D --> E{Tipo de solicitud}
+flowchart TB
+    U[Productor o usuario] <--> WA[WhatsApp]
+    WA <--> META[WhatsApp Cloud API - Meta]
+    META <--> API[Backend Python - FastAPI]
+    API --> WEB[Webhook y control de mensajes]
+    WEB --> CONV[Gestor de conversación]
+    CONV --> PREC[Módulo de precios]
+    PREC --> NOR[Interpretación y normalización de productos]
+    PREC --> DAT[Consulta y procesamiento SIPSA-DANE]
+    NOR --> LLM[Modelo de lenguaje]
+    DAT --> PN[Pentaho DANE - fuente prioritaria]
+    DAT --> XLS[Boletines XLSX - respaldo]
+    CONV <--> REDIS[(Redis: caché y contexto)]
+    DAT <--> PG[(PostgreSQL: datos persistentes)]
+    API --> ENV[Respuesta al usuario por Meta]
+    ENV --> META
 
-    E --> F[Módulo de precios agrícolas]
-    E --> G[Módulo de detección de enfermedades]
-
-    F --> H[Procesamiento de precios]
-    H --> I[Consulta en base de datos]
-    I --> J[Respuesta comercial]
-
-    G --> K[Procesamiento de imagen]
-    K --> L[Segmentación y análisis visual]
-    L --> M[Recomendación técnica]
-
-    J --> N[Respuesta al usuario]
-    M --> N
-    N --> B
+    IMG[Imágenes de frutos] --> SAM[SAM 3 - segmentación]
+    SAM --> ROIS[Recortes por fruto o racimo]
+    ROIS --> SELECT[Selección del clasificador por cultivo]
+    SELECT --> MORA[Modelo de mora]
+    SELECT --> PINA[Modelo de piña]
+    SELECT --> BAN[Banano - entrenamiento pendiente]
+    MORA --> DIAG[Predicción de condición del fruto]
+    PINA --> DIAG
 ```
+
+> **Estado de integración:** el diagrama representa los componentes técnicos documentados, **no un servicio único en producción completamente integrado**. El backend de precios implementa actualmente el menú conversacional; la ruta del módulo de enfermedades se mantiene como opción pendiente de integración en ese backend. No se dispone todavía de un reporte estadístico consolidado de usuarios ni de una prueba final de operación simultánea a gran escala.
+
+### Tecnologías empleadas
+
+| Componente | Tecnología | Función documentada |
+|---|---|---|
+| Interacción | WhatsApp y WhatsApp Cloud API (Meta) | Recepción de consultas y envío de respuestas del módulo de precios. |
+| Aplicación | Python y FastAPI | Webhooks, lógica de conversación y servicios de consulta. |
+| Persistencia | PostgreSQL y SQLAlchemy | Almacenamiento de boletines procesados y registros de conversación. |
+| Caché y contexto | Redis | Reutilización temporal de datos, desambiguaciones, menús y deduplicación. |
+| Fuente de precios | SIPSA-DANE: Pentaho y XLSX | Recuperación de precios mayoristas y procesamiento por fecha. |
+| Interpretación del lenguaje | Modelo de lenguaje y rutinas de normalización | Asociación de la solicitud con productos disponibles en SIPSA. |
+| Despliegue del backend | Docker y Docker Compose | Servicios de aplicación, PostgreSQL y Redis. |
+| Segmentación de imágenes | SAM 3 | Obtención de regiones individuales de frutos o racimos. |
+| Modelos de visión | PyTorch, Torchvision y modelos de clasificación | Clasificación por cultivo de imágenes previamente segmentadas. |
 
 ---
 
-## Estructura del repositorio
+## Organización del repositorio y versiones de desarrollo
+
+El repositorio principal **`MercoIA_Platform`** reúne la documentación y los soportes del proyecto. **Importante:** a la fecha de esta actualización, algunas rutas publicadas en este repositorio todavía corresponden a la implementación anterior. Los dos paquetes de código revisados para actualizar esta documentación contienen implementaciones más recientes que **aún deben sincronizarse con este repositorio principal**. Por esta razón se distingue explícitamente entre **archivos publicados** e **implementaciones actualizadas aportadas por el equipo**.
+
+### Estructura actualmente publicada en `MercoIA_Platform`
 
 ```text
 MercoIA_Platform/
-│
 ├── README.md
-│
 ├── assets/
 │   ├── logo_mercoia.png
-│   ├── arquitectura_general_mercoia.png
-│   ├── modulo_precios_n8n.png
+│   ├── arquitectura_general_mercoia.png       # esquema anterior: no usar como arquitectura vigente
 │   ├── organizacion_informacion.png
+│   ├── pipeline_modulo_precios.png            # figura de versión anterior
 │   └── pipelineenfermedades.png
-│
 ├── Modulo_precios/
-│   ├── docs/
-│   ├── src/
-│   └── workflows/
-│
+│   ├── docs/                                 # documentación previa
+│   ├── src/                                  # scripts previos en JavaScript
+│   └── workflows/                            # material histórico, NO operativo
 └── Modulo_Deteccion_enfermedades/
     ├── STSIVA/
     ├── codes_for_the_dataset/
@@ -112,259 +129,291 @@ MercoIA_Platform/
     └── network/
 ```
 
+Los diagramas de arquitectura anteriores se mantienen únicamente como **antecedentes de desarrollo**. El esquema Mermaid incluido arriba describe el diseño actualizado; se evita reutilizar imágenes que todavía representan conexiones obsoletas.
+
+### Organización de los paquetes técnicos actualizados
+
+Los paquetes de desarrollo más recientes, que deberán incorporarse o enlazarse desde el repositorio principal, se encuentran organizados de la siguiente manera:
+
+```text
+Módulo de precios (paquete FastAPI)
+├── app/
+│   ├── main.py
+│   ├── config.py
+│   ├── db.py
+│   ├── models.py
+│   ├── routers/
+│   │   ├── webhook.py
+│   │   └── health.py
+│   └── services/
+│       ├── conversation.py
+│       ├── classifier.py
+│       ├── ambiguous.py
+│       ├── normalizer.py
+│       ├── pricing.py
+│       ├── sipsa_dates.py
+│       ├── sipsa_fetch.py
+│       ├── sipsa_pentaho.py
+│       ├── sipsa_parser.py
+│       ├── whatsapp_client.py
+│       └── otros servicios auxiliares
+├── scripts/
+├── tests/
+├── Dockerfile
+├── docker-compose.yml
+├── requirements.txt
+└── .env.example
+
+Módulo de enfermedades (paquete de visión)
+├── Algorithm/codes/
+│   ├── Dataset_codes/
+│   │   ├── segmentar.py
+│   │   ├── etiquetado_visual.py
+│   │   ├── construir_dataset.py
+│   │   ├── generar_augmentacion.py
+│   │   └── data/                               # etiquetas y metadatos CSV
+│   └── efficenet.py
+├── sota_networks/
+│   ├── models.py
+│   ├── train.py
+│   ├── run_all.py
+│   ├── reporte.py
+│   └── predecir.py
+├── inferencia/
+│   ├── inferencia.py
+│   ├── pesos/
+│   ├── mora_test/
+│   └── pina_test/
+├── resultados/
+│   ├── resultados.csv
+│   ├── especificaciones_*.csv
+│   ├── figuras/
+│   └── informes/
+└── requirements.txt
+```
+
+> Las dos estructuras anteriores describen **los paquetes de código facilitados para esta actualización**, no rutas ya publicadas dentro de `MercoIA_Platform`. No ejecutar comandos desde la raíz del repositorio principal suponiendo que esas carpetas nuevas ya existen: deben descargarse los paquetes correspondientes o realizarse primero su incorporación.
+
 ---
 
 # Módulo de consulta de precios agrícolas
 
-## Descripción del módulo
+## Implementación actual
 
-El **Módulo de precios** tiene como objetivo permitir la consulta automatizada de precios de productos agrícolas en mercados mayoristas. Este módulo busca reducir la dificultad que enfrentan los productores para acceder a información comercial actualizada, organizada y comparable.
+El módulo de precios es un asistente conversacional que permite consultar valores de referencia publicados por el **Sistema de Información de Precios y Abastecimiento del Sector Agropecuario (SIPSA)** del DANE. Su implementación actual utiliza **Python, FastAPI y la API oficial de WhatsApp de Meta**. La lógica de recepción, interpretación, consulta, persistencia y respuesta se encuentra organizada en servicios, sin depender de un constructor visual de flujos.
 
-El sistema procesa información de precios, identifica productos, limpia registros, normaliza nombres y prepara respuestas que pueden ser entregadas al usuario mediante un flujo automatizado.
+El procesamiento comprende recepción de mensajes, selección de opciones del menú, detección de fechas, identificación del producto solicitado, resolución de variedades ambiguas, búsqueda de cotizaciones, construcción de una respuesta legible y envío al usuario. La normalización de productos combina reglas de texto, opciones disponibles del boletín consultado y el modelo de lenguaje configurado.
 
-Este módulo se apoya en:
+### Flujo de consulta
 
-- **n8n**, para automatización de flujos.
-- **Evolution API**, para conexión con WhatsApp.
-- Archivos de precios en formato **XLSX**.
-- Rutinas de limpieza y normalización de información.
-- Organización de datos para consulta.
-- Respuestas automáticas mediante flujo conversacional.
-
----
-
-## Flujo de actualización automática de precios
-
-El flujo de actualización automática permite descargar, procesar y organizar información de precios. El diseño busca que el sistema valide productos, identifique archivos disponibles, descargue la información, procese registros y genere una estructura consultable.
-
-<p align="center">
-  <img src="assets/pipeline_modulo_precios.png" alt="Actualización automática de precios con n8n" width="900">
-</p>
-
-El flujo general del módulo de precios contempla las siguientes etapas:
-
-1. **Generación de enlaces:** se crean rutas o enlaces candidatos para ubicar archivos de precios disponibles.
-2. **Búsqueda de base reciente:** el sistema prueba diferentes enlaces hasta encontrar una fuente disponible.
-3. **Descarga de archivo:** se descarga el archivo de precios en formato XLSX.
-4. **Lectura de datos:** se extraen las columnas y registros necesarios.
-5. **Limpieza de registros:** se eliminan filas que no corresponden a productos o precios válidos.
-6. **Normalización de nombres:** se unifican nombres de productos para facilitar la consulta.
-7. **Validación de precios:** se revisan datos faltantes o inconsistentes.
-8. **Organización de información:** se estructura la información para consulta.
-9. **Consulta por chatbot:** el usuario puede solicitar información de precios mediante WhatsApp.
-
----
-
-## Organización de la información
-
-La organización de la información es una etapa central del módulo de precios. El objetivo es transformar archivos de datos extensos en registros limpios, normalizados y útiles para consulta.
-
-<p align="center">
-  <img src="assets/organizacion_informacion.png" alt="Organización de la información del módulo de precios" width="900">
-</p>
-
-El procesamiento incluye:
-
-- Lectura de archivos fuente.
-- Identificación de productos agrícolas.
-- Limpieza de filas no válidas.
-- Normalización de nombres.
-- Validación de precios.
-- Organización de registros por producto, mercado, presentación y fecha.
-- Preparación de datos para consulta automática.
-
----
-
-## Carpeta del módulo de precios
-
-```text
-Modulo_precios/
-│
-├── docs/
-│
-├── src/
-│
-└── workflows/
+```mermaid
+sequenceDiagram
+    participant A as Agricultor
+    participant M as WhatsApp Cloud API
+    participant B as FastAPI
+    participant S as Servicios SIPSA
+    participant R as Redis / PostgreSQL
+    participant L as Normalizador
+    A->>M: Solicitud de precio
+    M->>B: Webhook
+    B-->>M: Confirmación de recepción
+    B->>R: Revisar duplicados y contexto
+    B->>S: Resolver fecha y boletín
+    S->>R: Consultar caché / snapshot
+    alt No existe información vigente almacenada
+        S->>S: Consultar SIPSA-DANE
+        S->>R: Guardar los datos recuperados
+    end
+    B->>L: Normalizar nombre y variedad
+    L-->>B: Producto seleccionado
+    B->>S: Extraer precios por mercado
+    B->>M: Mensaje de respuesta
+    M-->>A: Precio, fecha y mercados
 ```
 
-### `docs/`
+### Fuente de datos: SIPSA-DANE
 
-Carpeta destinada a documentación técnica del módulo. Puede incluir:
+La implementación revisada consulta prioritariamente el **servicio Pentaho asociado al SIPSA-DANE** y utiliza los **anexos diarios XLSX** como alternativa cuando no se obtiene la información requerida de la fuente prioritaria. El orden puede configurarse en la aplicación. Ambas fuentes se procesan para generar registros comparables.
 
-```text
-descripcion_modulo_precios.md
-estructura_base_datos.md
-pruebas_preliminares.md
+La configuración del código contempla, entre otras, las siguientes plazas mayoristas:
+
+- **Centroabastos**, Bucaramanga, Santander.
+- **Corabastos**, Bogotá D. C.
+
+Las plazas, fechas y productos disponibles dependen de lo publicado por SIPSA. Una consulta de un producto no incluido en la fuente no equivale a un registro de precio cero; debe notificarse la falta de información y evitarse la sustitución silenciosa por una variedad diferente.
+
+El procesamiento incluye fechas relativas (por ejemplo, «hoy», «ayer» o «hace dos días»), normalización ortográfica, desambiguación de variedades y respuestas con fecha, mercado y precio por kilogramo. Cuando la fuente ofrece datos suficientes, pueden calcularse variaciones respecto a la observación previa; deben interpretarse como información derivada de los registros disponibles, no como predicciones.
+
+### Organización y persistencia de información
+
+**PostgreSQL** conserva información procesada y registros operativos de la conversación. **Redis** permite recuperar datos recientes, guardar contexto temporal, reducir consultas repetidas y evitar procesamiento duplicado de eventos reenviados por el proveedor. Esta organización facilita que una consulta repetida no implique necesariamente una nueva descarga del mismo boletín.
+
+En los servicios de consulta se incluyen mecanismos de uso de caché, respaldo entre fuentes y refresco periódico. También se prevé un circuito de protección frente a fallos temporales del servicio Pentaho. Dichas medidas contribuyen a la continuidad del servicio, pero **no constituyen por sí solas una prueba de disponibilidad garantizada**.
+
+### Backend de mensajería y continuidad operativa
+
+El servicio expone un webhook para **WhatsApp Cloud API de Meta**, valida las solicitudes conforme a su configuración y procesa la conversación mediante tareas en segundo plano. El cliente de mensajería remite las respuestas a través de la API oficial. El proyecto incorpora además un contenedor de aplicación y contenedores de PostgreSQL y Redis.
+
+Este diseño mejora el control del código y facilita su mantenimiento por el equipo de desarrollo. Para asegurar operación sostenida después del convenio siguen siendo necesarios un servidor accesible por HTTPS, gestión de credenciales, respaldo de datos, supervisión y financiación de la infraestructura y la mensajería. **No se presenta como comprobada una disponibilidad ininterrumpida ni capacidad de concurrencia a gran escala**.
+
+## Pruebas y ejecución del módulo de precios
+
+El paquete de precios incluye pruebas automatizadas para clasificación de mensajes, fechas, selección de productos, desambiguación, búsqueda de datos, manejo de respuestas y otros servicios. Estas pruebas de componentes son distintas de una validación de campo o de una certificación operativa.
+
+Desde **la carpeta raíz del paquete FastAPI actualizado** (no desde la raíz del GitHub principal mientras no se sincronicen los archivos):
+
+```bash
+cp .env.example .env
+# Completar únicamente en el entorno privado los valores de configuración.
+docker compose up -d --build
+curl http://localhost:8000/health
 ```
 
-### `src/`
+La configuración privada requiere los identificadores y credenciales de Meta, el token de verificación del webhook, la clave del servicio de lenguaje si corresponde y los parámetros de infraestructura. Antes de habilitar el acceso externo deben configurarse HTTPS y la verificación de firma. Las pruebas locales pueden ejecutarse con las dependencias del paquete instalado:
 
-Carpeta destinada a scripts de procesamiento, funciones auxiliares, limpieza de datos, extracción de características o rutinas utilizadas por el módulo.
-
-### `workflows/`
-
-Carpeta destinada a flujos exportados desde n8n. Los archivos de esta carpeta deben subirse **sin credenciales activas**.
-
-Ejemplo recomendado:
-
-```text
-flujo_n8n_modulo_precios_sin_credenciales.json
+```bash
+python -m pytest tests/
 ```
+
+**Seguridad:** no publicar archivos `.env` con valores reales, tokens, claves API, credenciales, conversaciones privadas ni bases de datos con información identificable de agricultores.
 
 ---
 
 # Módulo de detección de enfermedades y análisis de frutos
 
-## Descripción del módulo
+## Arquitectura especializada por cultivo
 
-El **Módulo de detección de enfermedades y análisis de frutos** tiene como objetivo apoyar el diagnóstico visual y la evaluación de productos agrícolas mediante procesamiento de imágenes e inteligencia artificial.
+El módulo de visión **no utiliza un único clasificador para todos los frutos**. El proceso se reorganizó para separar la segmentación de la clasificación y entrenar modelos especializados por cultivo, porque la apariencia, las clases diagnósticas y la disponibilidad de ejemplos no son equivalentes entre mora, piña y banano.
 
-Este módulo se encuentra orientado al análisis de imágenes RGB de frutos y cultivos, con énfasis en tareas como:
-
-- Segmentación de frutos.
-- Organización de bases de datos de imágenes.
-- Etiquetado automático o semiautomático.
-- Entrenamiento preliminar de redes neuronales.
-- Identificación de características visuales.
-- Análisis de color.
-- Estimación de maduración.
-- Generación de recomendaciones asociadas a cosecha o condición del producto.
-
-Este componente busca contribuir a la detección temprana de enfermedades y al análisis del estado visual de los productos agrícolas, apoyando la toma de decisiones de los productores.
-
----
-
-## Pipeline del módulo de detección
-
-<p align="center">
-  <img src="assets/pipelineenfermedades.png" alt="Pipeline del módulo de detección de enfermedades" width="900">
-</p>
-
-El pipeline general del módulo se puede describir así:
+La separación permite construir categorías y conjuntos de entrenamiento específicos, revisar etiquetas por cultivo y evaluar la generalización de cada clasificador. **SAM 3** se utiliza en la preparación de imágenes para localizar y segmentar los frutos o racimos; después se clasifican los recortes por medio del modelo correspondiente.
 
 ```mermaid
 flowchart TD
-    A[Imagen agrícola RGB] --> B[Preprocesamiento]
-    B --> C[Segmentación del fruto]
-    C --> D[Extracción de región de interés]
-    D --> E[Análisis de color y características visuales]
-    E --> F[Estimación de condición del fruto]
-    F --> G[Detección preliminar o análisis de maduración]
-    G --> H[Recomendación para el usuario]
+    A[Fotografía RGB de campo] --> B[Segmentación con SAM 3]
+    B --> C[Recortes individuales y filtrado]
+    C --> D[Identificación del cultivo]
+    D -->|Mora| E[Clasificador de mora - EfficientNet-B0]
+    D -->|Piña| F[Clasificador de piña - MobileNetV3-Large]
+    D -->|Banano| G[Datos y etiquetas en preparación]
+    E --> H[Clase y confianza de la predicción]
+    F --> H
+    G --> I[Entrenamiento y evaluación pendientes]
 ```
 
----
+### Preparación de imágenes
 
-## Carpeta del módulo de detección
+El paquete técnico contiene utilidades para recuperar imágenes y relacionarlas con sus archivos originales, renombrar fotografías, realizar segmentación con SAM 3, filtrar recortes, etiquetar clases y construir conjuntos de entrenamiento. Se contemplan regiones correspondientes a frutos individuales y, en el caso de banano, segmentación por racimo o fruto según la toma.
 
-```text
-Modulo_Deteccion_enfermedades/
-│
-├── STSIVA/
-│
-├── codes_for_the_dataset/
-│
-├── images/
-│
-└── network/
+La información etiquetada se administra mediante archivos CSV y estructuras de carpetas, que posteriormente alimentan los procesos de entrenamiento. Las imágenes de campo y los recortes no deben confundirse: **una fotografía puede generar varios recortes**, y no todos los recortes segmentados disponen necesariamente de etiqueta revisada.
+
+### Estado documental del conjunto de imágenes
+
+El README del paquete de visión suministrado registra el siguiente estado **al 17 de octubre de 2026**:
+
+| Cultivo | Fotografías | Recortes segmentados | Recortes etiquetados | Pendientes de etiquetado |
+|---|---:|---:|---:|---:|
+| Mora | 870 | 3.881 | 1.467 | 2.414 |
+| Piña | 787 | 1.159 | 494 | 665 |
+| Banano | 835 | 814 | 94 | 720 |
+| **Total** | **2.492** | **5.854** | **2.055** | **3.799** |
+
+Estos valores describen el estado documentado del procesamiento de imágenes; **no representan usuarios atendidos ni diagnósticos clínicos o fitosanitarios confirmados en campo**.
+
+## Entrenamiento y comparación de clasificadores
+
+El banco de experimentos permite comparar **ocho arquitecturas**: EfficientNet-B0, EfficientNetV2-S, MobileNetV3-Large, ConvNeXt-Tiny, Swin-T, ViT-B/16, DINOv2 ViT-S/14 y DINOv2 ViT-B/14. El protocolo registrado utiliza partición estratificada de entrenamiento, validación y prueba, separación por grupos de imágenes del mismo fruto, aumentos de datos y evaluación por exactitud y F1 macro. Los resultados detallados se encuentran en los archivos CSV e informes del paquete de visión.
+
+### Modelos incluidos y limitaciones de generalización
+
+| Cultivo | Clasificador seleccionado para las pruebas | Soporte del paquete técnico | Estado de las pruebas documentadas |
+|---|---|---|---|
+| **Mora** | EfficientNet-B0 | `inferencia/pesos/mora_efficientnet_b0.pth` | 45/45 en prueba interna; **4/10** con recortes adicionales no vistos. Requiere revisión y reentrenamiento. |
+| **Piña** | MobileNetV3-Large | `inferencia/pesos/pina_mobilenet_v3_large.pth` | 74/74 en prueba interna; **9/10** con recortes adicionales no vistos. Debe ampliarse la validación externa. |
+| **Banano** | Sin clasificador final documentado | Imágenes, segmentación y etiquetas en preparación | Entrenamiento y evaluación pendientes. |
+
+Las métricas internas no se deben interpretar como desempeño garantizado en parcelas, centros de acopio o nuevas condiciones de iluminación. La diferencia observada con fotografías adicionales, especialmente para mora, es una razón técnica para continuar la depuración de etiquetas, el reentrenamiento y las pruebas externas.
+
+### Inferencia con los modelos incluidos
+
+Desde la **carpeta raíz del paquete de visión actualizado**, tras instalar sus dependencias:
+
+```bash
+python inferencia/inferencia.py \
+  --pesos inferencia/pesos/mora_efficientnet_b0.pth \
+  --entrada inferencia/mora_test
+
+python inferencia/inferencia.py \
+  --pesos inferencia/pesos/pina_mobilenet_v3_large.pth \
+  --entrada inferencia/pina_test
 ```
 
-### `STSIVA/`
+La entrada esperada por estos scripts son **recortes de fruto**, no imágenes de campo sin segmentar. El script permite consultar una imagen o un conjunto de imágenes y comparar predicciones frente a etiquetas cuando estas están disponibles.
 
-Carpeta destinada a códigos, experimentos o archivos relacionados con la ponencia científica asociada al análisis visual de frutos, estimación de maduración y recomendación de cosecha.
+## Relación con análisis de maduración
 
-### `codes_for_the_dataset/`
-
-Carpeta destinada a scripts de construcción, limpieza, organización, segmentación y etiquetado de bases de datos de imágenes.
-
-Puede incluir códigos para:
-
-- Segmentación automática.
-- Generación de etiquetas.
-- Filtrado de imágenes.
-- Aumento de datos.
-- Conversión de formatos.
-- Organización de carpetas.
-- Preprocesamiento de imágenes.
-
-### `images/`
-
-Carpeta destinada a resultados visuales, ejemplos de imágenes, salidas de segmentación, figuras del pipeline, resultados preliminares y visualizaciones.
-
-### `network/`
-
-Carpeta destinada a códigos de entrenamiento, arquitecturas de red, modelos preliminares, pesos entrenados, scripts de inferencia y pruebas iniciales.
+Además de la clasificación fitosanitaria, el proyecto ha desarrollado actividades de análisis visual de frutos y maduración, incluidas experiencias de segmentación y estimación de estados para apoyo a recomendaciones de cosecha. Estas actividades son complementarias al banco de clasificadores de enfermedades y **no deben presentarse como una funcionalidad ya integrada y validada en el mismo canal de WhatsApp**.
 
 ---
 
-## Integración entre módulos
+## Integración entre módulos y alcance funcional
 
-MercoIA se diseña como una plataforma integrada. El módulo de precios y el módulo de detección de enfermedades no son componentes aislados, sino partes de una misma herramienta de apoyo a la toma de decisiones.
+Los componentes persiguen una experiencia unificada para el agricultor: consultar precios de referencia y acceder a análisis visuales de productos agrícolas. En el estado de desarrollo revisado se distingue entre:
 
-El módulo de precios permite resolver preguntas comerciales como:
+| Capacidad | Estado documentado |
+|---|---|
+| Recepción y respuesta conversacional de consultas de precios por la API de Meta | Implementación de software disponible en el paquete del backend; requiere infraestructura y credenciales válidas para su operación externa. |
+| Consulta de información SIPSA-DANE y organización en Redis/PostgreSQL | Servicios implementados y acompañados de pruebas de software. |
+| Procesamiento de imágenes con SAM 3 | Herramientas de preparación y segmentación incluidas en el paquete de visión. |
+| Inferencia especializada para mora y piña | Pesos y scripts de prueba disponibles; desempeño en imágenes nuevas todavía en revisión. |
+| Clasificador de banano | Pendiente de entrenamiento y validación. |
+| Atención integral de ambos módulos desde un único chatbot | **Integración funcional completa pendiente** en el backend revisado. |
+| Pruebas piloto con beneficiarios y reporte estadístico consolidado de uso | **Pendientes de documentación y validación**. |
 
-- ¿Cuál es el precio de referencia de un producto?
-- ¿En qué mercado se reporta determinado precio?
-- ¿Qué información reciente existe sobre un producto agrícola?
-- ¿Cómo se organiza la información de precios para consulta?
-
-El módulo de detección permite abordar preguntas técnicas como:
-
-- ¿Qué condición visual presenta el fruto?
-- ¿Se puede segmentar el producto en la imagen?
-- ¿Cuál es el estado preliminar de maduración?
-- ¿Qué recomendación puede generarse a partir del análisis visual?
-
-La integración de ambos módulos permite avanzar hacia una plataforma que apoye simultáneamente decisiones de comercialización y decisiones asociadas al manejo productivo.
+La distinción es relevante para el despliegue gradual de MercoIA: disponer del código fuente y de modelos de IA es un avance tecnológico importante, pero no equivale por sí mismo a una validación completa con la población beneficiaria.
 
 ---
 
-## Estado actual del desarrollo
+## Estado de desarrollo, validación y próximos pasos
 
-El repositorio corresponde a una versión preliminar de desarrollo. Actualmente se cuenta con:
+Los componentes revisados muestran un avance sustancial respecto a la arquitectura inicial: servicio de precios con backend propio, fuente SIPSA con respaldo, persistencia y pruebas automatizadas; pipeline de datos agrícolas con segmentación SAM 3; evaluación comparativa de redes; e inferencia especializada para mora y piña.
 
-- Estructura inicial del repositorio de la plataforma.
-- Organización independiente de los módulos de precios y detección.
-- Flujo preliminar de automatización del módulo de precios.
-- Rutinas iniciales para procesamiento y organización de información.
-- Scripts preliminares para segmentación y análisis de imágenes.
-- Resultados iniciales de detección, segmentación o maduración.
-- Evidencias gráficas del flujo de trabajo.
-- Base para la integración futura con WhatsApp y servicios automatizados.
+Se mantienen actividades necesarias para completar el producto de plataforma desplegada y optimizada:
 
-La plataforma se encuentra en proceso de adecuación técnica, integración y validación funcional.
-
----
-
-## Consideraciones de seguridad
-
-Este repositorio no debe incluir información sensible ni credenciales activas. Antes de subir archivos, se debe verificar que no se incluyan:
-
-- Tokens de Evolution API.
-- Credenciales de n8n.
-- Contraseñas de correo electrónico.
-- Archivos `.env` con claves privadas.
-- Números telefónicos de usuarios.
-- Datos personales de productores.
-- Información administrativa o financiera sensible.
-- Bases de datos con información personal sin anonimización.
-
-Los flujos exportados desde n8n deben subirse sin credenciales, sin claves privadas y sin datos sensibles de usuarios.
+1. **Sincronizar el repositorio principal** con el backend FastAPI y el paquete actualizado de visión, conservando historial y autorías.
+2. **Completar la integración de la opción de enfermedades** en la experiencia de usuario prevista.
+3. **Reentrenar y verificar el clasificador de mora** sobre etiquetas revisadas y ampliar las muestras externas de todos los cultivos.
+4. **Preparar y evaluar el modelo de banano**, conforme se disponga de datos etiquetados representativos.
+5. **Realizar pruebas con comunidades vinculadas a MERCORED**, incluidos escenarios rurales y puntos de acopio.
+6. **Medir estabilidad, concurrencia y uso real**, documentando los resultados sin sustituirlos por proyecciones.
+7. **Definir condiciones de sostenibilidad operativa**: dominio, alojamiento, seguridad, respaldo, monitoreo y presupuesto de servicios externos.
 
 ---
 
-## Relación con productos del proyecto
+## Consideraciones de seguridad y publicación
 
-Este repositorio funciona como soporte técnico del producto:
+Al consolidar los repositorios deben protegerse las credenciales y los datos de usuarios. Antes de publicar código o archivos de prueba, revisar especialmente:
 
-**Producto tecnológico certificado o validado: Software – Plataforma digital desplegada y optimizada.**
+- Variables privadas y tokens de WhatsApp Cloud API, Meta y servicios de inteligencia artificial.
+- Accesos a PostgreSQL, Redis, servidores, túneles y paneles de configuración.
+- Datos personales, números telefónicos, historiales de conversación o fotografías sensibles de beneficiarios.
+- Licencias y condiciones de uso de modelos preentrenados, pesos y conjuntos de datos.
+- Archivos binarios de gran tamaño y datasets que deban almacenarse fuera de GitHub o gestionarse mediante mecanismos adecuados.
 
-También se relaciona con los productos:
+Los archivos `.env.example` deben contener únicamente nombres de variables y valores ficticios. Las credenciales reales nunca deben incluirse en `README.md` ni en los commits.
 
-- **Herramienta software automatizada para la consulta de precios.**
-- **Modelo de IA para detección temprana de enfermedades en cultivos a partir de imágenes.**
-- **Bases de datos organizadas y procesadas.**
-- **Informes técnicos asociados al desarrollo de la plataforma digital.**
+---
+
+## Relación con los productos del proyecto
+
+Este repositorio constituye un soporte de documentación y trazabilidad del **P13 — Plataforma digital desplegada y optimizada**, dentro del proyecto MercoIA. Aporta información vinculada también con:
+
+- **P9:** base de datos y procesamiento de precios agrícolas.
+- **P10:** base de datos de imágenes agrícolas para detección de enfermedades.
+- **P11:** modelos de inteligencia artificial para detección y clasificación de enfermedades.
+- **P12:** herramienta automatizada de consulta de precios.
+- **P13:** integración, optimización y despliegue gradual de la plataforma.
+
+La documentación del repositorio **no sustituye** los informes, pruebas de aceptación, soportes de uso o verificaciones que correspondan a cada producto.
 
 ---
 
@@ -373,25 +422,21 @@ También se relaciona con los productos:
 **Entidad ejecutora:** Federación Agroalimentaria y Agroambiental Campesina – MERCORED  
 **Entidad aliada:** Universidad Industrial de Santander – UIS  
 **Grupo aliado:** HDSP  
-**Convenio:** 268-2025  
-**Convocatoria:** SENAINNOVA 2024  
+**Convenio especial de cooperación:** 112721-268-2025  
+**Convocatoria:** SENAINNOVA 2024
 
 ---
 
 ## Contacto
 
-Para información relacionada con el desarrollo técnico de la plataforma:
-
 **HDSP – Universidad Industrial de Santander**  
 Correo: **hdsp@uis.edu.co**
-
-Para información relacionada con la entidad ejecutora y articulación con asociaciones campesinas:
 
 **Federación Agroalimentaria y Agroambiental Campesina – MERCORED**  
 Correo: **federacionmercored@gmail.com**
 
 ---
 
-## Nota de avance
+## Nota de actualización
 
-Este repositorio corresponde a una versión preliminar de MercoIA. Los módulos, flujos, scripts, modelos y recursos visuales pueden ser modificados conforme avance el proceso de integración, validación, despliegue y retroalimentación con usuarios finales.
+**Actualización documental: octubre de 2026.** La arquitectura descrita corresponde a los paquetes de software más recientes aportados por los equipos de desarrollo para el módulo de precios y el módulo de enfermedades. Cuando se incorporen al repositorio principal, deberá actualizarse el árbol de directorios y reemplazarse cualquier figura anterior que todavía represente la arquitectura sustituida. Los resultados experimentales y cifras del conjunto de datos tienen el corte señalado en sus apartados.
